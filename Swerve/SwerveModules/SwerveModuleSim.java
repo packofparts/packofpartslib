@@ -8,6 +8,8 @@ import com.ctre.phoenix6.hardware.TalonFX;
 import POPLib.SmartDashboard.PIDTuning;
 import POPLib.Swerve.SwerveConstants.SwerveModuleConstants;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.units.Units;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
@@ -15,23 +17,27 @@ import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.units.measure.Voltage;
+import edu.wpi.first.wpilibj.simulation.DCMotorSim;
 
 /**
  * Falcon Swerve Module.
  */
-public class SwerveModuleTalon extends SwerveModule {
-    private TalonFX angleMotor;
-    private TalonFX driveMotor;
+public class SwerveModuleSim extends SwerveModule {
+    private DCMotorSim driveMotor;
+    private DCMotorSim angleMotor;
 
     private VelocityDutyCycle drivePID;
     private VoltageOut driveVoltage;
     private PositionDutyCycle anglePID;
 
-    public SwerveModuleTalon(SwerveModuleConstants moduleConstants) {
+    public SwerveModuleSim(SwerveModuleConstants moduleConstants) {
         super(moduleConstants);
 
-        angleMotor = moduleConstants.getAngleFalcon();
-        driveMotor = moduleConstants.getDriveFalcon();
+        driveMotor = new DCMotorSim(LinearSystemId.createDCMotorSystem(DCMotor.getKrakenX60Foc(-1), -1, -1),
+                                    DCMotor.getKrakenX60Foc(-1));
+
+        angleMotor = new DCMotorSim(LinearSystemId.createDCMotorSystem(DCMotor.getKrakenX60Foc(-1), -1, -1),
+                                    DCMotor.getKrakenX60Foc(-1));
 
         resetToAbsolute();
 
@@ -44,68 +50,74 @@ public class SwerveModuleTalon extends SwerveModule {
 
     @Override
     public void resetToAbsolute() {
-        angleMotor.setPosition(getCanCoder().getRotations());
-        lastAngle = getCanCoder();
     }
 
     @Override
     protected void applySwerveModuleState(double velocityMPS, Rotation2d angle) {
-        driveMotor.setControl(drivePID.withVelocity(velocityMPS)); 
-        angleMotor.setControl(anglePID.withPosition(angle.getRotations()));
+        //TODO
+        //driveMotor.setInputVoltage(MathUtil.clamp(driveAppliedVolts, -12.0, 12.0));
+        //angleMotor.setInputVoltage(MathUtil.clamp(turnAppliedVolts, -12.0, 12.0));
+        //driveMotor.update(0.02);
+        //angleMotor.update(0.02);
     }
 
     @Override
     protected Angle getAngle() {
-        return angleMotor.getPosition().getValue();
+        return angleMotor.getAngularPosition();
     }
 
     @Override
     protected Distance getPosition() {
-        return Units.Meter.of(driveMotor.getPosition().getValueAsDouble());
+        return Units.Meter.of(driveMotor.getAngularPositionRotations());
     }
 
     @Override
     protected LinearVelocity getVelocity() {
         // Convert from default units Rotations/Sec to M/S
-        return Units.MetersPerSecond.of(driveMotor.getVelocity().getValueAsDouble() * 
-        SwerveModuleConstants.wheelCircumference.magnitude());
+        return Units.MetersPerSecond.of(driveMotor.getAngularVelocityRPM() * 
+        SwerveModuleConstants.wheelCircumference.magnitude() * 60);
     }
 
     @Override
     protected AngularVelocity getTurnAngularVelocity() {
-        // Convert from default units Rotations/Sec to Radians/Sec
-        return Units.RadiansPerSecond.of(angleMotor.getVelocity().getValueAsDouble() * 2 * Math.PI);
+        return angleMotor.getAngularVelocity();
     }
 
     @Override
     protected Current getDriveCurrent() {
-        return Units.Amps.of(driveMotor.getStatorCurrent().getValueAsDouble());
+        //TODO
+        return null;
+        //return Units.Amps.of(driveMotor.getStatorCurrent().getValueAsDouble());
     }
 
     @Override
     protected Current getTurnCurrent() {
-        return Units.Amps.of(angleMotor.getStatorCurrent().getValueAsDouble());
+        //TODO
+        return null;
+        //return Units.Amps.of(angleMotor.getStatorCurrent().getValueAsDouble());
     }
 
     @Override
     public void updatePID(PIDTuning angle, PIDTuning drive) {
-        angle.updatePID(angleMotor);
-        drive.updatePID(driveMotor);
+        //TODO
     }
 
     @Override
     public void runSysIdRoutine(double voltage) {
-        angleMotor.setControl(anglePID.withPosition(0.0)); 
-        driveMotor.setControl(driveVoltage.withOutput(voltage));
+        //TODO
+        // angleMotor.setControl(anglePID.withPosition(0.0)); 
+        // driveMotor.setControl(driveVoltage.withOutput(voltage));
     }
 
     @Override
     protected Voltage getDriveVoltage() {
-        return driveMotor.getMotorVoltage().getValue();
+        //TODO
+        return null;
     }
 
     @Override
     protected Voltage getTurnVoltage() {
-        return angleMotor.getMotorVoltage().getValue();
+        //TODO
+        return null;
     }
 }
