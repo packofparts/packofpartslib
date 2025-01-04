@@ -1,7 +1,6 @@
 package POPLib.Swerve.SwerveModules;
 
 import com.ctre.phoenix6.hardware.CANcoder;
-
 import POPLib.SmartDashboard.PIDTuning;
 import POPLib.Swerve.CTREModuleState;
 import POPLib.Swerve.SwerveConstants.SwerveModuleConstants;
@@ -9,35 +8,53 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
-import edu.wpi.first.units.DimensionlessUnit;
-import edu.wpi.first.units.DistanceUnit;
-import edu.wpi.first.units.LinearAccelerationUnit;
-import edu.wpi.first.units.Measure;
 import edu.wpi.first.units.Units;
-import edu.wpi.first.units.VelocityUnit;
 import edu.wpi.first.units.measure.Angle;
-import edu.wpi.first.units.measure.Dimensionless;
+import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Distance;
+import edu.wpi.first.units.measure.LinearAcceleration;
 import edu.wpi.first.units.measure.LinearVelocity;
+import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Time;
-import edu.wpi.first.units.measure.Velocity;
 import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.sysid.SysIdRoutineLog;
+import org.littletonrobotics.junction.AutoLog;
+import org.littletonrobotics.junction.Logger;
 
 public abstract class SwerveModule {
     public SwerveModuleConstants swerveModuleConstants;
     protected CANcoder angleEncoder;
     protected Rotation2d lastAngle;
-    
+
+    private final ModuleIOInputsAutoLogged inputs;
+
     protected LinearVelocity lastVelo;
     protected Time lastVeloTime;
+
+    @AutoLog
+    public static class ModuleIOInputs {
+
+      public SwerveModuleState swerveState = new SwerveModuleState();
+      public SwerveModulePosition swervePose = new SwerveModulePosition();
+
+      public Distance driveMotorDistance = Units.Meters.zero();
+      public LinearVelocity driveLinearVelocity = Units.MetersPerSecond.zero();
+      public Current driveCurrent = Units.Amps.zero();
+  
+      public Rotation2d turnEncoderPosition = new Rotation2d();
+      public Rotation2d turnMotorPosition = new Rotation2d();
+      public AngularVelocity turnAngularVelocity = Units.RadiansPerSecond.zero();
+      public Current turnCurrent = Units.Amps.zero();
+    }
 
     public SwerveModule(SwerveModuleConstants moduleConstants) {
         angleEncoder = moduleConstants.getCanCoder();
         this.swerveModuleConstants = moduleConstants;
         lastAngle = Rotation2d.fromDegrees(0);
+
+        inputs = new ModuleIOInputsAutoLogged();
 
         lastVelo = Units.MetersPerSecond.of(0.0);
         lastVeloTime = Units.Seconds.of(Timer.getFPGATimestamp());
@@ -52,7 +69,11 @@ public abstract class SwerveModule {
     abstract protected Angle getAngle();
     abstract protected Distance getPosition();
     abstract protected LinearVelocity getVelocity();
+    abstract protected AngularVelocity getTurnAngularVelocity();
     abstract protected Voltage getDriveVoltage();
+    abstract protected Voltage getTurnVoltage();
+    abstract protected Current getDriveCurrent();
+    abstract protected Current getTurnCurrent();
 
     public void logSysId(SysIdRoutineLog log) {
         log.motor("Drive " + swerveModuleConstants.moduleNumber)
@@ -66,7 +87,7 @@ public abstract class SwerveModule {
     }
 
     public Angle getPositionAngle() {
-        return Units.Rotations.of(getPosition().div(SwerveModuleConstants.wheelCircumference).magnitude());
+        return Units.Rotations.of(getPosition().divide(SwerveModuleConstants.wheelCircumference).magnitude());
     }
 
     public void log() {
@@ -122,24 +143,46 @@ public abstract class SwerveModule {
 
     public abstract void runSysIdRoutine(double voltage);
 
-    public LinearVelocity accelLimit(LinearVelocity newVelocity) {
-        LinearVelocity velocityChange = newVelocity.minus(lastVelo);
-        Time ellapsedTime = Units.Seconds.of(Timer.getFPGATimestamp()).minus(lastVeloTime);
+     public LinearVelocity accelLimit(LinearVelocity newVelo) {
+        LinearVelocity veloChange = newVelo.minus(lastVelo);
+        Time elapsedTime = Units.Seconds.of(Timer.getFPGATimestamp()).minus(lastVeloTime);
 
-        // TODO: Update
-        // newVelocity = lastVelo.plus( 
-        //     (
-        //         Math.max(
-        //             velocityChange.div(ellapsedTime).abs(Units.MetersPerSecondPerSecond), 
-        //             swerveModuleConstants.moduleInfo.maxAcceleration.times(
-        //                 1 - lastVelo.div(swerveModuleConstants.moduleInfo.maxSpeed).magnitude()
-        //             ).in(Units.MetersPerSecondPerSecond)
-        //         ) 
-        //         * ellapsedTime.in(Units.Seconds) * (velocityChange.lt(Units.MetersPerSecond.of(0)) ? -1 : 1)));
+        LinearAcceleration maxAcceleration = swerveModuleConstants.moduleInfo.maxAcceleration.times(
+            1 - lastVelo.divide(swerveModuleConstants.moduleInfo.maxSpeed).magnitude()
+        );
 
-        lastVelo = newVelocity;
-        lastVeloTime.plus(ellapsedTime);
+        if (veloChange.divide(elapsedTime).gt(maxAcceleration)) {
+            newVelo = lastVelo.plus(
+                maxAcceleration.times(elapsedTime)
+                .times(veloChange.lt(Units.MetersPerSecond.of(0)) ? -1 : 1)                    
+            );
+        }
 
-        return newVelocity;
+        lastVelo = newVelo;
+        lastVeloTime = lastVeloTime.plus(elapsedTime);
+
+        return newVelo;
+    }
+
+    public void updateInputs(ModuleIOInputsAutoLogged inputs) {
+        // Update State and Pose
+        inputs.swerveState = getState();
+        inputs.swervePose = getPose();
+        
+        // Update Drive Inputs
+        inputs.driveMotorDistance = getPosition();
+        inputs.driveLinearVelocity = getVelocity();
+        inputs.driveCurrent = getDriveCurrent();
+
+        // Update Current Inputs
+        inputs.turnEncoderPosition = getRotation2dAngle();
+        inputs.turnMotorPosition = Rotation2d.fromRotations(getAngle().magnitude());
+        inputs.turnAngularVelocity = getTurnAngularVelocity();
+        inputs.turnCurrent = getTurnCurrent();
+    }
+
+    public void periodic() {
+        updateInputs(inputs);
+        Logger.processInputs("Drive/Module" + swerveModuleConstants.moduleNumber, inputs);
     }
 }
